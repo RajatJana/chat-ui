@@ -82,11 +82,31 @@ async function triggerReflect() {
 function mockIntentIdentification(input) {
   let action = "onto:action/RestructureLoan";
   let target = "onto:Mortgage/LOAN-031";
+  let as_of = "2025-06-01T00:00:00Z";
   const text = input.toLowerCase();
-  if (text.includes("credit") || text.includes("limit")) { action = "onto:action/IncreaseCreditLimit"; target = "onto:CreditCard/1000"; } 
-  else if (text.includes("freeze")) { action = "onto:action/FreezeAccount"; target = "onto:BankAccount/999"; } 
-  else if (text.includes("loan") || text.includes("restructure")) { action = "onto:action/RestructureLoan"; target = "onto:Mortgage/LOAN-031"; }
-  return { action, target, context: {} };
+
+  // Extract explicit date if provided, e.g. "as of 2025-06-01" or ISO timestamp
+  const dateMatch = input.match(/\b\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)?\b/);
+  if (dateMatch) {
+    as_of = dateMatch[0].includes('T') ? dateMatch[0] : `${dateMatch[0]}T00:00:00Z`;
+  }
+
+  // Extract specific entity id if provided in input
+  const loanMatch = input.match(/\b(LOAN-\d+|ACC-\d+|\d{3,})\b/i);
+
+  if (text.includes("credit") || text.includes("limit")) { 
+    action = "onto:action/IncreaseCreditLimit"; 
+    target = loanMatch ? `onto:CreditCard/${loanMatch[0].toUpperCase()}` : "onto:CreditCard/1000"; 
+  } 
+  else if (text.includes("freeze")) { 
+    action = "onto:action/FreezeAccount"; 
+    target = loanMatch ? `onto:BankAccount/${loanMatch[0].toUpperCase()}` : "onto:BankAccount/999"; 
+  } 
+  else { 
+    action = "onto:action/RestructureLoan"; 
+    target = loanMatch ? `onto:Mortgage/${loanMatch[0].toUpperCase()}` : "onto:Mortgage/LOAN-031"; 
+  }
+  return { action, target, as_of, trigger_ref: `evt:${action.split('/').pop()}/${target.split('/').pop()}`, context: {} };
 }
 
 // ─────────────────────────────────────────────────────────
@@ -128,21 +148,40 @@ const MessageBubble = ({ children, isUser }) => (
   </div>
 );
 
-const IntentCard = ({ data }) => (
-  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-    <div style={{ fontWeight: 600, color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.9rem' }}><Zap size={16}/> Intent Parsed</div>
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, background: 'var(--bg-gradient)', padding: 12, borderRadius: 12, border: '1px solid var(--border)' }}>
-      <div>
-         <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 2 }}>Action</div>
-         <div style={{ fontSize: '0.85rem', fontWeight: 600 }}>{data.action?.split('/').pop()}</div>
+const IntentCard = ({ data }) => {
+  const asOf = data.as_of || data.asOf;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div style={{ fontWeight: 600, color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.9rem' }}>
+        <Zap size={16}/> Intent Parsed
       </div>
-      <div>
-         <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 2 }}>Target Entity</div>
-         <div style={{ fontSize: '0.85rem', fontWeight: 600 }}>{data.target?.split('/').pop()}</div>
+      <div style={{ 
+        display: 'grid', 
+        gridTemplateColumns: asOf ? 'repeat(3, 1fr)' : '1fr 1fr', 
+        gap: 12, 
+        background: 'var(--bg-gradient)', 
+        padding: 12, 
+        borderRadius: 12, 
+        border: '1px solid var(--border)' 
+      }}>
+        <div>
+           <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 2 }}>Action</div>
+           <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)' }}>{data.action?.split('/').pop()}</div>
+        </div>
+        <div>
+           <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 2 }}>Target Entity</div>
+           <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)', fontFamily: 'monospace' }}>{data.target?.split('/').pop()}</div>
+        </div>
+        {asOf && (
+           <div>
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 2 }}>As Of (Bitemporal)</div>
+              <div style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--primary)', fontFamily: 'monospace' }}>{asOf}</div>
+           </div>
+        )}
       </div>
     </div>
-  </div>
-);
+  );
+};
 
 const DecisionCard = ({ data }) => (
   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -339,13 +378,22 @@ const SidebarDashboard = ({ stageId, data }) => {
    
    const renderDashboard = () => {
        switch(stageId) {
-           case 'INTENT':
-               return (
-                  <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
-                     <StatCard label="Action" value={data.action?.split('/').pop()} icon={<Activity size={18}/>} />
-                     <StatCard label="Target" value={data.target?.split('/').pop()} />
-                  </div>
-               );
+            case 'INTENT': {
+                const asOf = data.as_of || data.asOf;
+                return (
+                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
+                      <div style={{ display: 'flex', gap: 10 }}>
+                         <StatCard label="Action" value={data.action?.split('/').pop()} icon={<Activity size={18}/>} />
+                         <StatCard label="Target" value={data.target?.split('/').pop()} />
+                      </div>
+                      {asOf && (
+                         <div style={{ display: 'flex', gap: 10 }}>
+                            <StatCard label="As Of (Bitemporal Instant)" value={asOf} icon={<Clock size={18} />} />
+                         </div>
+                      )}
+                   </div>
+                );
+            }
            case 'DECISION':
                return (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>

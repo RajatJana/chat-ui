@@ -19,8 +19,18 @@ const STAGES = [
 
 const API_BASE = `http://10.73.86.59:8000`;
 const PDO_BASE = `http://10.73.86.59:8001`;
+const PARSE_BASE = `http://10.73.81.191:8000`;
 
 // API Calls
+async function parseIntent(question) {
+  const res = await fetch(`${PARSE_BASE}/api/parse`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ question })
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
 async function orchestrate(intent) {
   const res = await fetch(`${API_BASE}/api/v1/orchestrate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(intent) });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -183,27 +193,63 @@ const IntentCard = ({ data }) => {
   );
 };
 
-const DecisionCard = ({ data }) => (
-  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-    <div style={{ fontWeight: 600, color: 'var(--purple)', display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.9rem' }}><ShieldCheck size={16}/> Decision Evaluated</div>
-    <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: data.allowed ? 'rgba(16, 185, 129, 0.05)' : 'rgba(239, 68, 68, 0.05)', padding: '12px 16px', borderRadius: 12, border: `1px solid ${data.allowed ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)'}` }}>
-       <div style={{ flex: 1 }}>
-          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 2 }}>Verdict</div>
-          <div style={{ fontSize: '1rem', fontWeight: 700, color: data.allowed ? 'var(--success)' : 'var(--error)' }}>{data.verdict}</div>
-       </div>
-       <div style={{ textAlign: 'right' }}>
-          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 2 }}>Risk Tier</div>
-          <div style={{ fontSize: '0.85rem', fontWeight: 600, padding: '4px 10px', background: 'var(--warning)', color: 'white', borderRadius: 99 }}>{data.risk_tier}</div>
-       </div>
+const DecisionCard = ({ data }) => {
+  const isBlocked = !data.allowed || data.verdict === 'BLOCK' || data.verdict === 'DENY';
+  const checks = data?.checks || data?.precondition_checks || [];
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div style={{ fontWeight: 600, color: 'var(--purple)', display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.9rem' }}><ShieldCheck size={16}/> Decision Evaluated</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: data.allowed ? 'rgba(16, 185, 129, 0.05)' : 'rgba(239, 68, 68, 0.05)', padding: '12px 16px', borderRadius: 12, border: `1px solid ${data.allowed ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)'}` }}>
+         <div style={{ flex: 1 }}>
+            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 2 }}>Verdict</div>
+            <div style={{ fontSize: '1rem', fontWeight: 700, color: data.allowed ? 'var(--success)' : 'var(--error)' }}>{data.verdict}</div>
+         </div>
+         <div style={{ textAlign: 'right' }}>
+            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 2 }}>Risk Tier</div>
+            <div style={{ fontSize: '0.85rem', fontWeight: 600, padding: '4px 10px', background: isBlocked ? 'var(--error)' : 'var(--warning)', color: 'white', borderRadius: 99 }}>{data.risk_tier}</div>
+         </div>
+      </div>
+      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>Decision ID: {data.decision_id}</div>
+      {!isBlocked && (data.requires_human_approval || data.human_approval_needed || data.human_review_required || data.risk_tier === 'HIGH' || data.risk_tier === 'CRITICAL') && (
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 4, padding: '6px 10px', background: 'rgba(245, 158, 11, 0.1)', color: 'var(--warning)', border: '1px solid rgba(245, 158, 11, 0.3)', borderRadius: 6, fontSize: '0.75rem', fontWeight: 600 }}>
+             <AlertCircle size={14} /> Human Approval Needed
+          </div>
+      )}
+      {isBlocked && (
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 4, padding: '6px 10px', background: 'rgba(239, 68, 68, 0.08)', color: 'var(--error)', border: '1px solid rgba(239, 68, 68, 0.25)', borderRadius: 6, fontSize: '0.75rem', fontWeight: 600 }}>
+             <AlertCircle size={14} /> Action Blocked: Preconditions Not Satisfied
+          </div>
+      )}
+      {checks.length > 0 && <ConstraintChecks checks={checks} />}
     </div>
-    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>Decision ID: {data.decision_id}</div>
-    {(data.requires_human_approval || data.human_approval_needed || data.human_review_required || data.risk_tier === 'HIGH' || data.risk_tier === 'CRITICAL') && (
-        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 4, padding: '6px 10px', background: 'rgba(245, 158, 11, 0.1)', color: 'var(--warning)', border: '1px solid rgba(245, 158, 11, 0.3)', borderRadius: 6, fontSize: '0.75rem', fontWeight: 600 }}>
-           <AlertCircle size={14} /> Human Approval Needed
+  );
+};
+
+const BlockedCard = ({ data }) => {
+  const checks = data?.reasons || [];
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div style={{ fontWeight: 600, color: 'var(--error)', display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.9rem' }}>
+        <AlertCircle size={16} /> Action Blocked by Preconditions
+      </div>
+      <div style={{ 
+        padding: '14px 16px', 
+        borderRadius: 12, 
+        background: 'rgba(239, 68, 68, 0.04)', 
+        border: '1px solid rgba(239, 68, 68, 0.2)' 
+      }}>
+        <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#b91c1c', marginBottom: 4 }}>
+          {data?.message || 'Preconditions not met — action blocked and execution safely halted.'}
         </div>
-    )}
-  </div>
-);
+        {checks.length > 0 && (
+          <div style={{ marginTop: 10 }}>
+            <ConstraintChecks checks={checks} />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
 
 const ApprovalCard = ({ data }) => {
   const isApproved = data.state === 'APPROVED' || data.state === 'EXECUTING' || data.state === 'EXECUTED';
@@ -235,6 +281,28 @@ const ApprovalCard = ({ data }) => {
   );
 };
 
+function formatCheck(c) {
+  if (!c) return { label: 'Precondition', valueText: null, passed: false };
+  const raw = c.precondition || c.constraint || c.name || c.expression || (typeof c === 'string' ? c : '');
+  const cleaned = raw.replace(/\s*\[.*?\]\s*$/g, '').trim();
+
+  let label = cleaned || 'Constraint';
+  let valueText = null;
+
+  if (c.resolved_value !== undefined && c.resolved_value !== null) {
+    const valStr = typeof c.resolved_value === 'object' ? JSON.stringify(c.resolved_value) : String(c.resolved_value);
+    valueText = `Observed: ${valStr}`;
+  } else if (c.detail) {
+    valueText = c.detail;
+  }
+
+  return {
+    label,
+    valueText,
+    passed: !!c.passed
+  };
+}
+
 function ConstraintChecks({ checks }) {
   if (!checks || checks.length === 0) return null;
   const passed = checks.filter(c => c.passed).length;
@@ -248,15 +316,44 @@ function ConstraintChecks({ checks }) {
         </span>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        {checks.map((c, i) => (
-          <div key={i} style={{ display: 'flex', gap: 10, padding: '8px 12px', borderRadius: 8, background: c.passed ? 'rgba(16, 185, 129, 0.05)' : 'rgba(239, 68, 68, 0.05)', border: `1px solid ${c.passed ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.2)'}`, fontSize: '0.8rem' }}>
-            <span style={{ color: c.passed ? 'var(--success)' : 'var(--error)', fontWeight: 700 }}>{c.passed ? '✓' : '✗'}</span>
-            <div style={{ flex: 1 }}>
-              <span style={{ fontWeight: 500, color: 'var(--text-main)' }}>{c.constraint}</span>
-              {!c.passed && <span style={{ color: 'var(--error)', marginLeft: 8 }}>— {c.detail}</span>}
+        {checks.map((c, i) => {
+          const item = formatCheck(c);
+          return (
+            <div key={i} style={{ 
+               display: 'flex', 
+               alignItems: 'center', 
+               justifyContent: 'space-between', 
+               gap: 10, 
+               padding: '8px 12px', 
+               borderRadius: 8, 
+               background: item.passed ? 'rgba(16, 185, 129, 0.05)' : 'rgba(239, 68, 68, 0.05)', 
+               border: `1px solid ${item.passed ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.25)'}`, 
+               fontSize: '0.8rem' 
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flex: 1 }}>
+                <span style={{ color: item.passed ? 'var(--success)' : 'var(--error)', fontWeight: 700, flexShrink: 0 }}>
+                  {item.passed ? '✓' : '✗'}
+                </span>
+                <span style={{ fontWeight: 500, color: 'var(--text-main)', fontFamily: 'monospace', fontSize: '0.78rem', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {item.label}
+                </span>
+              </div>
+              {item.valueText && (
+                <span style={{ 
+                   fontSize: '0.72rem', 
+                   fontWeight: 600, 
+                   color: item.passed ? '#047857' : '#b91c1c', 
+                   background: item.passed ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)', 
+                   padding: '2px 8px', 
+                   borderRadius: 6, 
+                   flexShrink: 0 
+                }}>
+                  {item.valueText}
+                </span>
+              )}
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -395,6 +492,7 @@ const SidebarDashboard = ({ stageId, data }) => {
                 );
             }
            case 'DECISION':
+               const isBlocked = !data.allowed || data.verdict === 'BLOCK' || data.verdict === 'DENY';
                return (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: data.allowed ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)', padding: '16px', borderRadius: 12, border: `1px solid ${data.allowed ? 'rgba(16,185,129,0.2)' : 'rgba(239,68,68,0.2)'}` }}>
@@ -404,12 +502,17 @@ const SidebarDashboard = ({ stageId, data }) => {
                         </div>
                         <div style={{ textAlign: 'right' }}>
                            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: 6 }}>Risk Level</div>
-                           <div style={{ fontSize: '0.8rem', fontWeight: 600, padding: '4px 10px', background: 'var(--warning)', color: 'white', borderRadius: 99 }}>{data.risk_tier}</div>
+                           <div style={{ fontSize: '0.8rem', fontWeight: 600, padding: '4px 10px', background: isBlocked ? 'var(--error)' : 'var(--warning)', color: 'white', borderRadius: 99 }}>{data.risk_tier}</div>
                         </div>
                      </div>
-                     {(data.requires_human_approval || data.human_approval_needed || data.human_review_required || data.risk_tier === 'HIGH' || data.risk_tier === 'CRITICAL') && (
+                     {!isBlocked && (data.requires_human_approval || data.human_approval_needed || data.human_review_required || data.risk_tier === 'HIGH' || data.risk_tier === 'CRITICAL') && (
                         <div style={{ marginTop: 8, padding: '10px', background: 'rgba(245, 158, 11, 0.1)', border: '1px solid rgba(245, 158, 11, 0.3)', borderRadius: 8, color: 'var(--warning)', fontSize: '0.8rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
                            <AlertCircle size={16} /> Human Approval Needed for Execution
+                        </div>
+                     )}
+                     {isBlocked && (
+                        <div style={{ marginTop: 8, padding: '10px', background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.25)', borderRadius: 8, color: 'var(--error)', fontSize: '0.8rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
+                           <AlertCircle size={16} /> Action Blocked: Preconditions Not Satisfied
                         </div>
                      )}
                   </div>
@@ -446,6 +549,14 @@ const SidebarDashboard = ({ stageId, data }) => {
                   </div>
                );
            case 'APPROVE':
+               if (data?.bypassed) {
+                  return (
+                     <div style={{ marginBottom: 16, padding: '14px', background: '#f8fafc', borderRadius: 12, border: '1px dashed #cbd5e1' }}>
+                        <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#64748b', marginBottom: 2 }}>Stage Bypassed</div>
+                        <div style={{ fontSize: '0.73rem', color: '#94a3b8' }}>{data.reason || 'Human approval bypassed because the action was blocked.'}</div>
+                     </div>
+                  );
+               }
                const appState = data.state === 'APPROVED' || data.state === 'EXECUTING' || data.state === 'EXECUTED' ? 'APPROVED' : data.state === 'REJECTED' || data.state === 'BLOCKED' ? 'REJECTED' : 'PENDING';
                return (
                   <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
@@ -453,6 +564,14 @@ const SidebarDashboard = ({ stageId, data }) => {
                   </div>
                );
            case 'PLAN':
+               if (data?.bypassed) {
+                  return (
+                     <div style={{ marginBottom: 16, padding: '14px', background: '#f8fafc', borderRadius: 12, border: '1px dashed #cbd5e1' }}>
+                        <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#64748b', marginBottom: 2 }}>Stage Bypassed</div>
+                        <div style={{ fontSize: '0.73rem', color: '#94a3b8' }}>{data.reason || 'Execution planning bypassed because the action was blocked.'}</div>
+                     </div>
+                  );
+               }
                return (
                   <div style={{ marginBottom: 16, padding: 16, background: 'var(--surface)', borderRadius: 12, border: '1px solid var(--border)', boxShadow: 'var(--shadow-sm)' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
@@ -488,6 +607,14 @@ const SidebarDashboard = ({ stageId, data }) => {
                   </div>
                );
            case 'EXECUTE': {
+               if (data?.bypassed) {
+                  return (
+                     <div style={{ marginBottom: 16, padding: '14px', background: '#f8fafc', borderRadius: 12, border: '1px dashed #cbd5e1' }}>
+                        <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#64748b', marginBottom: 2 }}>Stage Bypassed</div>
+                        <div style={{ fontSize: '0.73rem', color: '#94a3b8' }}>{data.reason || 'Target API execution halted safely because the action was blocked.'}</div>
+                     </div>
+                  );
+               }
                 const stepResults = Array.isArray(data.step_results) ? data.step_results : [];
                 return (
                    <div style={{ marginBottom: 16 }}>
@@ -811,8 +938,28 @@ export default function App() {
     try {
         // 1. INTENT
         setStageStatuses(prev => ({ ...prev, INTENT: 'active' }));
-        await new Promise(r => setTimeout(r, 600)); 
-        const intent = mockIntentIdentification(promptText);
+        let intent = null;
+        try {
+          const parsed = await parseIntent(promptText);
+          if (parsed && parsed.action && parsed.target) {
+            intent = {
+              action: parsed.action,
+              target: parsed.target,
+              as_of: parsed.as_of || '2025-06-01T00:00:00Z',
+              trigger_ref: `evt:${parsed.action.split('/').pop()}/${parsed.target.split('/').pop()}`,
+              ...(parsed.mode ? { mode: parsed.mode } : {}),
+              ...(parsed.ok !== undefined ? { ok: parsed.ok } : {})
+            };
+          }
+        } catch (err) {
+          console.warn('Live parse endpoint failed, falling back:', err);
+        }
+
+        if (!intent) {
+          await new Promise(r => setTimeout(r, 400));
+          intent = mockIntentIdentification(promptText);
+        }
+
         setStageJsons(prev => ({ ...prev, INTENT: intent }));
         setStageStatuses(prev => ({ ...prev, INTENT: 'completed' }));
         setExpandedStage('INTENT');
@@ -833,7 +980,52 @@ export default function App() {
         setStageStatuses(prev => ({ ...prev, PIPELINE: 'completed' }));
         setExpandedStage('PIPELINE');
 
-        let currentDecisionId = submitRes.decision_id;
+        let currentDecisionId = submitRes?.decision_id || decisionRes?.decision_id;
+        const isBlocked = !decisionRes?.allowed || decisionRes?.verdict === 'BLOCK' || decisionRes?.verdict === 'DENY' || submitRes?.status === 'BLOCKED';
+
+        if (isBlocked) {
+           // Downline stages APPROVE, PLAN, EXECUTE are not needed for blocked cases
+           setStageStatuses(prev => ({
+              ...prev,
+              APPROVE: 'skipped',
+              PLAN: 'skipped',
+              EXECUTE: 'skipped'
+           }));
+           setStageJsons(prev => ({
+              ...prev,
+              APPROVE: { bypassed: true, reason: 'Action blocked by decision engine; human approval not applicable.' },
+              PLAN: { bypassed: true, reason: 'Action blocked; neural execution planning bypassed.' },
+              EXECUTE: { bypassed: true, reason: 'Action blocked; target API execution halted.' }
+           }));
+
+           // Downline execution is bypassed; no execution message is emitted to chat
+
+           // Proceed directly to REFLECT and SWEEP
+           // REFLECT
+           setStageStatuses(prev => ({ ...prev, REFLECT: 'active' }));
+           setExpandedStage('REFLECT');
+           try {
+              const reflectRes = await triggerReflect();
+              setStageJsons(prev => ({ ...prev, REFLECT: reflectRes }));
+           } catch(e) {
+              setStageJsons(prev => ({ ...prev, REFLECT: { error: e.message } }));
+           }
+           setStageStatuses(prev => ({ ...prev, REFLECT: 'completed' }));
+
+           // SWEEP
+           setStageStatuses(prev => ({ ...prev, SWEEP: 'active' }));
+           setExpandedStage('SWEEP');
+           try {
+              const sweepRes = await triggerSweep();
+              setStageJsons(prev => ({ ...prev, SWEEP: sweepRes }));
+           } catch(e) {
+              setStageJsons(prev => ({ ...prev, SWEEP: { error: e.message } }));
+           }
+           setStageStatuses(prev => ({ ...prev, SWEEP: 'completed' }));
+
+           setIsProcessing(false);
+           return;
+        }
 
         if (submitRes.status === 'PENDING_APPROVAL' || submitRes.status === 'AWAITING_APPROVAL') {
            setStageStatuses(prev => ({ ...prev, APPROVE: 'active' }));
@@ -1045,6 +1237,7 @@ export default function App() {
                   {msg.type === 'text' && <div>{msg.text || msg.data}</div>}
                   {msg.type === 'intent' && <IntentCard data={msg.data} />}
                   {msg.type === 'decision' && <DecisionCard data={msg.data} />}
+                  {msg.type === 'blocked' && <BlockedCard data={msg.data} />}
                   {msg.type === 'approval' && <ApprovalCard data={msg.data} />}
                   {msg.type === 'plan' && <PlanCard data={msg.data} />}
                   {msg.type === 'execute' && <ExecutionCard data={msg.data} />}
@@ -1138,8 +1331,10 @@ export default function App() {
       {/* Enterprise Pipeline Sidebar */}
       {(() => {
         const completedCount = STAGES.filter(s => stageStatuses[s.id] === 'completed').length;
+        const skippedCount = STAGES.filter(s => stageStatuses[s.id] === 'skipped' || stageStatuses[s.id] === 'bypassed').length;
         const activeStage = STAGES.find(s => stageStatuses[s.id] === 'active');
-        const progressPercent = Math.round((completedCount / STAGES.length) * 100);
+        const isFinished = !activeStage && (completedCount + skippedCount) === STAGES.length && (completedCount > 0 || skippedCount > 0);
+        const progressPercent = Math.round(((completedCount + skippedCount) / STAGES.length) * 100);
 
         return (
           <div 
@@ -1213,6 +1408,22 @@ export default function App() {
                          <span className="animate-pulse-subtle" style={{ width: 7, height: 7, borderRadius: '50%', background: '#2563eb' }}></span>
                          EXECUTING
                       </div>
+                   ) : isFinished && skippedCount > 0 ? (
+                      <div style={{ 
+                         display: 'flex', 
+                         alignItems: 'center', 
+                         gap: '6px', 
+                         padding: '4px 10px', 
+                         borderRadius: '99px', 
+                         background: 'rgba(239, 68, 68, 0.08)', 
+                         border: '1px solid rgba(239, 68, 68, 0.2)', 
+                         color: '#dc2626', 
+                         fontSize: '0.72rem', 
+                         fontWeight: 600 
+                      }}>
+                         <AlertCircle size={13} color="#dc2626" />
+                         HALTED (BLOCKED)
+                      </div>
                    ) : completedCount === STAGES.length ? (
                       <div style={{ 
                          display: 'flex', 
@@ -1262,13 +1473,15 @@ export default function App() {
                    <span style={{ color: '#64748b', fontWeight: 500 }}>
                       {activeStage ? (
                          <span>Running: <strong style={{ color: '#0f172a' }}>{activeStage.label}</strong></span>
+                      ) : isFinished && skippedCount > 0 ? (
+                         <span><strong style={{ color: '#0f172a' }}>{completedCount}</strong> stages verified • <strong style={{ color: '#dc2626' }}>{skippedCount} bypassed</strong> (Blocked)</span>
                       ) : completedCount > 0 ? (
                          <span><strong style={{ color: '#0f172a' }}>{completedCount}</strong> of {STAGES.length} stages verified</span>
                       ) : (
                          <span>Ready for workflow execution</span>
                       )}
                    </span>
-                   <span style={{ fontWeight: 700, color: completedCount === STAGES.length ? '#059669' : '#2563eb', fontSize: '0.72rem' }}>
+                   <span style={{ fontWeight: 700, color: (isFinished && skippedCount > 0) ? '#dc2626' : completedCount === STAGES.length ? '#059669' : '#2563eb', fontSize: '0.72rem' }}>
                       {progressPercent}%
                    </span>
                 </div>
@@ -1276,7 +1489,9 @@ export default function App() {
                    <div style={{ 
                       height: '100%', 
                       width: `${progressPercent}%`, 
-                      background: 'linear-gradient(90deg, #2563eb 0%, #6366f1 50%, #10b981 100%)', 
+                      background: (isFinished && skippedCount > 0)
+                         ? 'linear-gradient(90deg, #2563eb 0%, #6366f1 50%, #ef4444 100%)'
+                         : 'linear-gradient(90deg, #2563eb 0%, #6366f1 50%, #10b981 100%)', 
                       borderRadius: '99px', 
                       transition: 'width 0.4s cubic-bezier(0.16, 1, 0.3, 1)' 
                    }}></div>
@@ -1297,7 +1512,9 @@ export default function App() {
                       const isActive = status === 'active';
                       const isCompleted = status === 'completed';
                       const isPending = status === 'pending';
+                      const isSkipped = status === 'skipped' || status === 'bypassed';
                       const isLast = idx === STAGES.length - 1;
+                      const nextStageStatus = STAGES[idx + 1] ? (stageStatuses[STAGES[idx + 1].id] || 'pending') : null;
 
                       return (
                          <div 
@@ -1305,7 +1522,7 @@ export default function App() {
                             style={{ 
                                display: 'flex', 
                                gap: '14px',
-                               opacity: isPending ? 0.65 : 1,
+                               opacity: isPending ? 0.65 : isSkipped ? 0.75 : 1,
                                transition: 'all 0.25s ease'
                             }}
                          >
@@ -1320,13 +1537,17 @@ export default function App() {
                                      ? `linear-gradient(135deg, ${stageColor} 0%, ${stageColor}dd 100%)` 
                                      : isCompleted 
                                         ? '#ecfdf5' 
-                                        : '#f8fafc',
+                                        : isSkipped
+                                           ? '#f8fafc'
+                                           : '#f8fafc',
                                   border: `1.5px solid ${
                                      isActive 
                                         ? stageColor 
                                         : isCompleted 
                                            ? '#10b981' 
-                                           : '#e2e8f0'
+                                           : isSkipped
+                                              ? '#cbd5e1'
+                                              : '#e2e8f0'
                                   }`,
                                   display: 'flex', 
                                   alignItems: 'center', 
@@ -1341,7 +1562,9 @@ export default function App() {
                                      ? '#ffffff' 
                                      : isCompleted 
                                         ? '#059669' 
-                                        : '#94a3b8',
+                                        : isSkipped
+                                           ? '#94a3b8'
+                                           : '#94a3b8',
                                   transition: 'all 0.3s ease',
                                   zIndex: 2
                                }}>
@@ -1349,6 +1572,8 @@ export default function App() {
                                      <Loader2 size={17} className="spinner" />
                                   ) : isCompleted ? (
                                      <CheckCircle size={17} color="#059669" />
+                                  ) : isSkipped ? (
+                                     <span style={{ fontSize: '13px', fontWeight: 700, color: '#94a3b8' }}>—</span>
                                   ) : (
                                      <StageIcon size={16} />
                                   )}
@@ -1360,7 +1585,7 @@ export default function App() {
                                      flex: 1,
                                      width: '2px',
                                      minHeight: '20px',
-                                     background: isCompleted 
+                                     background: (isCompleted && nextStageStatus === 'completed')
                                         ? '#10b981' 
                                         : isActive 
                                            ? `linear-gradient(180deg, ${stageColor} 0%, #cbd5e1 100%)` 
@@ -1386,7 +1611,9 @@ export default function App() {
                                         ? '#ffffff' 
                                         : isCompleted 
                                            ? '#ffffff' 
-                                           : 'rgba(248, 250, 252, 0.7)',
+                                           : isSkipped
+                                              ? '#fafafa'
+                                              : 'rgba(248, 250, 252, 0.7)',
                                      border: `1px solid ${
                                         isActive 
                                            ? stageColor 
@@ -1394,7 +1621,9 @@ export default function App() {
                                               ? 'rgba(37, 99, 235, 0.3)' 
                                               : isCompleted 
                                                  ? '#e2e8f0' 
-                                                 : 'rgba(226, 232, 240, 0.7)'
+                                                 : isSkipped
+                                                    ? 'rgba(226, 232, 240, 0.8)'
+                                                    : 'rgba(226, 232, 240, 0.7)'
                                      }`,
                                      borderRadius: '14px',
                                      boxShadow: isActive 
@@ -1439,6 +1668,10 @@ export default function App() {
                                            <span className="animate-pulse-subtle" style={{ color: stageColor, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
                                               <span style={{ width: 6, height: 6, borderRadius: '50%', background: stageColor }}></span>
                                               Executing stage sequence...
+                                           </span>
+                                        ) : isSkipped ? (
+                                           <span style={{ color: '#94a3b8', fontStyle: 'italic', fontSize: '0.72rem' }}>
+                                              ⊘ Bypassed • Not required for blocked cases
                                            </span>
                                         ) : isCompleted && stage.id === 'APPROVE' ? (
                                            <span style={{ 

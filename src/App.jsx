@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Send, Bot, CheckCircle, Circle, Loader2, AlertCircle, Clock, ShieldCheck, Zap, ChevronDown, ChevronRight, Activity, Database, GitMerge, Sparkles, Code, Copy, Check, RotateCcw } from 'lucide-react';
+import { Send, Bot, CheckCircle, Circle, Loader2, AlertCircle, Clock, ShieldCheck, Zap, ChevronDown, ChevronRight, Activity, Database, GitMerge, Sparkles, Code, Copy, Check, RotateCcw, Star } from 'lucide-react';
 import ThinkingOrb from './components/ThinkingOrb';
 import './index.css';
 
@@ -13,6 +13,7 @@ const STAGES = [
   { id: 'APPROVE', label: 'Human Approval', subtitle: 'HITL governance authorization' },
   { id: 'PLAN', label: 'Execution Planning', subtitle: 'Synthesized sequence & constraints' },
   { id: 'EXECUTE', label: 'Execution & Close', subtitle: 'Transactional target API dispatch' },
+  { id: 'EPISODE', label: 'Episode Recorded & Rewarded', subtitle: 'Decision recorded in ledger' },
   { id: 'REFLECT', label: 'Reflect', subtitle: 'Policy experience distillation' },
   { id: 'SWEEP', label: 'Sweep', subtitle: 'TTL decision cache cleanup' }
 ];
@@ -46,6 +47,11 @@ async function getDecision(id) {
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
+async function getEpisode(id) {
+  const res = await fetch(`${PDO_BASE}/api/v1/episodes/${encodeURIComponent(id)}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
 async function getExecutionPlan(id) {
   const res = await fetch(`${PDO_BASE}/api/v1/decisions/${encodeURIComponent(id)}/plan`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -68,6 +74,7 @@ const STAGE_COLORS = {
   APPROVE: '#14b8a6',   // Teal
   PLAN: '#6366f1',      // Indigo
   EXECUTE: '#10b981',   // Emerald
+  EPISODE: '#f59e0b',   // Amber
   REFLECT: '#ec4899',   // Pink
   SWEEP: '#64748b'      // Slate
 };
@@ -79,6 +86,7 @@ const STAGE_ICONS = {
   APPROVE: Clock,
   PLAN: GitMerge,
   EXECUTE: Activity,
+  EPISODE: Star,
   REFLECT: Sparkles,
   SWEEP: Database
 };
@@ -426,11 +434,11 @@ const ExecutionCard = ({ data }) => {
 // SIDEBAR DASHBOARD COMPONENT
 // ─────────────────────────────────────────────────────────
 const StatCard = ({ label, value, icon, success }) => (
-  <div style={{ background: 'var(--surface)', padding: '12px', borderRadius: '12px', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 12, flex: 1, boxShadow: 'var(--shadow-sm)' }}>
-      {icon && <div style={{ color: success ? 'var(--success)' : 'var(--primary)', padding: 8, background: success ? 'rgba(16,185,129,0.1)' : 'rgba(37,99,235,0.1)', borderRadius: 8 }}>{icon}</div>}
-      <div>
+  <div style={{ background: 'var(--surface)', padding: '12px', borderRadius: '12px', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 12, flex: 1, minWidth: 0, boxShadow: 'var(--shadow-sm)' }}>
+      {icon && <div style={{ color: success ? 'var(--success)' : 'var(--primary)', padding: 8, background: success ? 'rgba(16,185,129,0.1)' : 'rgba(37,99,235,0.1)', borderRadius: 8, flexShrink: 0 }}>{icon}</div>}
+      <div style={{ minWidth: 0, overflow: 'hidden' }}>
           <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '2px' }}>{label}</div>
-          <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)' }}>{value}</div>
+          <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{value}</div>
       </div>
   </div>
 );
@@ -468,6 +476,82 @@ const CopyButton = ({ data }) => {
       <span>{copied ? 'Copied' : 'Copy JSON'}</span>
     </button>
   );
+};
+
+const EpisodeStageContent = ({ data }) => {
+   const [isEditing, setIsEditing] = useState(false);
+   const [reward, setReward] = useState(data.reward != null ? data.reward : '0.8');
+   const [reflection, setReflection] = useState(data.reflection || '');
+   const [submitting, setSubmitting] = useState(false);
+   const [saved, setSaved] = useState(false);
+
+   const handleSave = async () => {
+       setSubmitting(true);
+       try {
+           await fetch(`${PDO_BASE}/api/v1/episodes/${encodeURIComponent(data.episodeId)}/reward`, {
+               method: 'POST',
+               headers: { 'Content-Type': 'application/json' },
+               body: JSON.stringify({ reward: parseFloat(reward), reflection })
+           });
+           setSaved(true);
+           setIsEditing(false);
+           data.reward = reward;
+           data.reflection = reflection;
+       } catch(e) {
+           console.error(e);
+       }
+       setSubmitting(false);
+   };
+
+   return (
+       <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
+           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+               <StatCard label="Episode ID" value={data.episodeId} icon={<Database size={18} />} success />
+           </div>
+           
+           <div style={{ background: 'var(--surface)', borderRadius: 12, border: '1px solid var(--border)', boxShadow: 'var(--shadow-sm)', overflow: 'hidden' }}>
+               <div style={{ padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-main)', borderBottom: isEditing ? '1px solid var(--border)' : 'none' }}>
+                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                       <div style={{ color: '#f59e0b', padding: 6, background: 'rgba(245, 158, 11, 0.1)', borderRadius: 8 }}>
+                           <Star size={16} fill="currentColor" />
+                       </div>
+                       <div>
+                           <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Reward</div>
+                           {!isEditing && (
+                               <div style={{ fontSize: '0.85rem', fontWeight: 600, color: saved || data.reward != null ? 'var(--success)' : 'var(--text-main)' }}>
+                                   {saved ? reward : (data.reward != null ? data.reward : 'Pending')}
+                               </div>
+                           )}
+                       </div>
+                   </div>
+                   {!isEditing && (
+                       <button onClick={()=>setIsEditing(true)} style={{ padding: '6px 12px', background: 'rgba(37,99,235,0.05)', color: 'var(--primary)', border: '1px solid rgba(37,99,235,0.15)', borderRadius: 6, fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, transition: 'all 0.2s', boxShadow: '0 1px 2px rgba(37,99,235,0.05)' }}>
+                           <Star size={12} /> Fine-tune
+                       </button>
+                   )}
+               </div>
+               
+               {isEditing && (
+                   <div style={{ padding: 16 }}>
+                       <div style={{ marginBottom: 12 }}>
+                           <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, marginBottom: 6 }}>Reward Score (0.0 - 1.0)</label>
+                           <input type="number" step="0.1" value={reward} onChange={e=>setReward(e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-main)', color: 'var(--text-main)', outline: 'none', fontSize: '0.85rem' }} />
+                       </div>
+                       <div style={{ marginBottom: 16 }}>
+                           <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, marginBottom: 6 }}>Reflection Hint</label>
+                           <textarea value={reflection} onChange={e=>setReflection(e.target.value)} placeholder="Why was this optimal?" style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-main)', color: 'var(--text-main)', outline: 'none', resize: 'vertical', fontSize: '0.85rem', minHeight: 60 }} />
+                       </div>
+                       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                           <button onClick={()=>setIsEditing(false)} style={{ padding: '8px 16px', background: 'transparent', border: 'none', color: 'var(--text-muted)', borderRadius: 8, cursor: 'pointer', fontWeight: 600, fontSize: '0.8rem' }}>Cancel</button>
+                           <button onClick={handleSave} disabled={submitting} style={{ padding: '8px 16px', background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', color: 'white', borderRadius: 8, border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: 6, boxShadow: '0 4px 12px rgba(16, 185, 129, 0.2)' }}>
+                               {submitting ? 'Committing...' : <><Check size={14} /> Commit</>}
+                           </button>
+                       </div>
+                   </div>
+               )}
+           </div>
+       </div>
+   );
 };
 
 const SidebarDashboard = ({ stageId, data }) => {
@@ -621,13 +705,13 @@ const SidebarDashboard = ({ stageId, data }) => {
                        <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
                           <StatCard label="Pipeline Status" value={data.status || 'EXECUTED'} icon={<CheckCircle size={18} />} success />
                           {stepResults.length > 0 && (
-                             <StatCard label="Actions Run" value={`${stepResults.length} Successful`} icon={<Zap size={18} />} success />
+                             <StatCard label="Action Sub-Steps Executed" value={`${stepResults.length} Successful`} icon={<Zap size={18} />} success />
                           )}
                        </div>
 
                        <div style={{ fontSize: '0.8rem', color: 'var(--text-main)', background: 'var(--surface)', padding: '16px', borderRadius: '12px', border: '1px solid var(--border)', boxShadow: 'var(--shadow-sm)' }}>
                           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 10, borderBottom: '1px solid rgba(0,0,0,0.06)', marginBottom: 12 }}>
-                             <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Target Integration</span>
+                             <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Bank API Integration</span>
                              <span style={{
                                 fontSize: '0.7rem',
                                 fontWeight: 700,
@@ -863,6 +947,8 @@ const SidebarDashboard = ({ stageId, data }) => {
                       <StatCard label="Decisions Expired" value={data.expired_count || 0} icon={<Database size={18} />} success />
                   </div>
                );
+           case 'EPISODE':
+               return <EpisodeStageContent data={data} />;
            default:
                return null;
        }
@@ -980,7 +1066,7 @@ export default function App() {
         setStageStatuses(prev => ({ ...prev, PIPELINE: 'completed' }));
         setExpandedStage('PIPELINE');
 
-        let currentDecisionId = submitRes?.decision_id || decisionRes?.decision_id;
+        let currentDecisionId = submitRes?.decisionId || submitRes?.decision_id || decisionRes?.decisionId || decisionRes?.decision_id;
         const isBlocked = !decisionRes?.allowed || decisionRes?.verdict === 'BLOCK' || decisionRes?.verdict === 'DENY' || submitRes?.status === 'BLOCKED';
 
         if (isBlocked) {
@@ -1033,29 +1119,38 @@ export default function App() {
            addBotMessage('approval', submitRes);
            
            let isApproved = false;
+           let isExpired = false;
            while(true) {
               await new Promise(r => setTimeout(r, 2000));
-              const d = await getDecision(currentDecisionId);
-              setStageJsons(prev => ({ ...prev, APPROVE: d }));
-              
-              setMessages(prev => {
-                  const updated = [...prev];
-                  for (let i = updated.length - 1; i >= 0; i--) {
-                      if (updated[i].type === 'approval') {
-                          updated[i] = { ...updated[i], data: { ...updated[i].data, state: d.state, decisionId: d.decisionId || currentDecisionId } };
-                          break;
-                      }
-                  }
-                  return updated;
-              });
+              try {
+                 const d = await getDecision(currentDecisionId);
+                 setStageJsons(prev => ({ ...prev, APPROVE: d }));
+                 
+                 setMessages(prev => {
+                     const updated = [...prev];
+                     for (let i = updated.length - 1; i >= 0; i--) {
+                         if (updated[i].type === 'approval') {
+                             updated[i] = { ...updated[i], data: { ...updated[i].data, state: d.state, decisionId: d.decisionId || currentDecisionId } };
+                             break;
+                         }
+                     }
+                     return updated;
+                 });
 
-              if (d.state === 'APPROVED' || d.state === 'EXECUTING' || d.state === 'EXECUTED') {
-                 isApproved = true; break;
+                 if (d.state === 'APPROVED' || d.state === 'EXECUTING' || d.state === 'EXECUTED') {
+                    isApproved = true; break;
+                 }
+                 if (d.state === 'REJECTED' || d.state === 'BLOCKED') break;
+              } catch (e) {
+                 isExpired = true;
+                 break;
               }
-              if (d.state === 'REJECTED' || d.state === 'BLOCKED') break;
            }
            if (!isApproved) {
               setStageStatuses(prev => ({ ...prev, APPROVE: 'error' }));
+              if (isExpired) {
+                 setStageJsons(prev => ({ ...prev, APPROVE: { error: 'Approval window expired. Decision was swept from ledger.' } }));
+              }
               setIsProcessing(false);
               return;
            }
@@ -1093,6 +1188,41 @@ export default function App() {
         addBotMessage('execute', execRes);
         setStageStatuses(prev => ({ ...prev, EXECUTE: 'completed' }));
         
+        // EPISODE
+        setStageStatuses(prev => ({ ...prev, EPISODE: 'active' }));
+        setExpandedStage('EPISODE');
+        
+        let actualEpisodeId = currentDecisionId;
+        let finalDec = null;
+        for (let i = 0; i < 4; i++) {
+            await new Promise(r => setTimeout(r, 1000));
+            try {
+                finalDec = await getDecision(currentDecisionId);
+                if (finalDec && (finalDec.episodeId || finalDec.episode_id)) {
+                    actualEpisodeId = finalDec.episodeId || finalDec.episode_id;
+                    break;
+                }
+            } catch(e) {}
+        }
+        
+        if (!finalDec?.episodeId && submitRes && (submitRes.episodeId || submitRes.episode_id)) {
+            actualEpisodeId = submitRes.episodeId || submitRes.episode_id;
+        }
+        
+        let episodeData = { episodeId: actualEpisodeId, status: 'CLOSED', reward: null, reflection: '' };
+        try {
+            const fetchedEp = await getEpisode(actualEpisodeId);
+            if (fetchedEp) {
+                episodeData = fetchedEp;
+                if (!episodeData.episodeId && episodeData.episode_id) {
+                    episodeData.episodeId = episodeData.episode_id;
+                }
+            }
+        } catch(e) {}
+        
+        setStageJsons(prev => ({ ...prev, EPISODE: episodeData }));
+        setStageStatuses(prev => ({ ...prev, EPISODE: 'completed' }));
+
         // REFLECT
         setStageStatuses(prev => ({ ...prev, REFLECT: 'active' }));
         setExpandedStage('REFLECT');
